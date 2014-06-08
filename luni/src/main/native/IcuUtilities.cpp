@@ -50,7 +50,7 @@ jobjectArray fromStringEnumeration(JNIEnv* env, StringEnumeration* se) {
     if (maybeThrowIcuException(env, "StringEnumeration::snext", status)) {
       return NULL;
     }
-    ScopedLocalRef<jstring> javaString(env, env->NewString(string->getBuffer(), string->length()));
+    ScopedLocalRef<jstring> javaString(env, env->NewString((const jchar *)string->getBuffer(), string->length()));
     env->SetObjectArrayElement(result, i, javaString.get());
   }
   return result;
