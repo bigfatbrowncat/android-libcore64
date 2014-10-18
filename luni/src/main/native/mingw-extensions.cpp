@@ -21,6 +21,8 @@
 
 #include <io.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <time.h>
 
 #include <stdarg.h>
 #include <ws2tcpip.h>
@@ -50,6 +52,16 @@
 
 
 // Static data (unfortunately, we have some)
+class SocketNonblockingLock {
+    static pthread_mutex_t mutex;
+    SocketNonblockingLock() {
+        pthread_mutex_lock(&mutex);
+    }
+    ~SocketNonblockingLock() {
+        pthread_mutex_unlock(&mutex);
+    }
+};
+pthread_mutex_t SocketNonblockingLock::mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static std::map<int, bool> socket_nonblocking;	// We have to store this in a map
 												// cause it is impossible to check this in Windows
@@ -316,6 +328,8 @@ int pipe(int pipefd[2])
 
 int fcntl(int fd, int cmd, ... /* arg */ )
 {
+    SocketNonblockingLock _lock();
+
 	int res = 0;
 
 	va_list args;
@@ -1071,7 +1085,10 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout)
 
     ready_descriptors = select(max_fd + 1, &read_descs, &write_descs, &except_descs, pTimeout);
 
-    if (ready_descriptors >= 0) {
+    if (ready_descriptors == SOCKET_ERROR) {
+        errno = windowsErrorToErrno(WSAGetLastError());
+        return -1;
+    } else if (ready_descriptors > 0) {
     	map_select_results(fds, nfds, &read_descs, &write_descs, &except_descs);
     }
 
@@ -1286,6 +1303,8 @@ int _wsymlink(const wchar_t *path1, const wchar_t *path2)
 
 int mingw_close(int fd)
 {
+    SocketNonblockingLock _lock();
+
 	if (socket_nonblocking.find(fd) != socket_nonblocking.end()) {
 		socket_nonblocking.erase(fd);
 	}
