@@ -32,10 +32,12 @@
  * question). For now at least, this seems like a good compromise for Android.
  */
 static pthread_mutex_t blockedThreadListMutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t blockedPollMutex = PTHREAD_MUTEX_INITIALIZER;
 static AsynchronousCloseMonitor* blockedThreadList = NULL;
 
+#if defined(__MINGW32__) || defined(__MINGW64__)
+static pthread_mutex_t blockedPollMutex = PTHREAD_MUTEX_INITIALIZER;
 std::map<DWORD, UnlockPair*> AsynchronousCloseMonitor::unlockPairs;
+#endif
 
 /**
  * The specific signal chosen here is arbitrary, but bionic needs to know so that SIGRTMIN

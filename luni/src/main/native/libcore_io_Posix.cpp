@@ -1204,7 +1204,13 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
 
     // Turn the Java android.system.StructPollfd[] into a C++ struct pollfd[].
     size_t arrayLength = env->GetArrayLength(javaStructs);
+
+#if defined(__MINGW32__) || defined(__MINGW64__)
 	bool createUnlockPair = timeoutMs > 0;
+#else
+	bool createUnlockPair = false;
+#endif
+
 	int tmpLength = arrayLength + (createUnlockPair ? 2 : 0);
     UniquePtr<struct pollfd[]> fds(new struct pollfd[tmpLength]);
     memset(fds.get(), 0, sizeof(struct pollfd) * tmpLength);
@@ -1222,6 +1228,8 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
         fds[count].events = env->GetShortField(javaStruct.get(), eventsFid);
         ++count;
     }
+
+#if defined(__MINGW32__) || defined(__MINGW64__)
 	UnlockPair* unlockPair = NULL;
 	if (createUnlockPair) {
 		unlockPair = new UnlockPair();
@@ -1230,6 +1238,7 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
 		fds[count + 1].fd = unlockPair->end2;
         fds[count + 1].events = POLLIN | POLLPRI | POLLOUT;
 	}
+#endif
 
     std::vector<AsynchronousCloseMonitor*> monitors;
     for (size_t i = 0; i < count; ++i) {
@@ -1239,10 +1248,13 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
     for (size_t i = 0; i < monitors.size(); ++i) {
         delete monitors[i];
     }
+
+#if defined(__MINGW32__) || defined(__MINGW64__)
 	if (createUnlockPair) {
 		delete unlockPair;
 	}
-	
+#endif
+
     if (rc == -1) {
         throwErrnoException(env, "poll");
         return -1;
