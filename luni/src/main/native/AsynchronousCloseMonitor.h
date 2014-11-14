@@ -17,6 +17,8 @@
 #ifndef ASYNCHRONOUS_CLOSE_MONITOR_H_included
 #define ASYNCHRONOUS_CLOSE_MONITOR_H_included
 
+#include <map>
+
 #include "ScopedPthreadMutexLock.h"
 #include <pthread.h>
 
@@ -25,6 +27,15 @@
 #else
 #   include <Winsock2.h>
 #   include <windows.h>
+#endif
+
+#if defined(__MINGW32__) || defined(__MINGW64__)
+class UnlockPair {
+public:
+	SOCKET end1, end2;
+	UnlockPair();
+	~UnlockPair();
+};
 #endif
 
 /**
@@ -49,6 +60,11 @@
  *   monitor.wasSignaled();
  */
 class AsynchronousCloseMonitor {
+#if defined(__MINGW32__) || defined(__MINGW64__)
+private:
+	friend class UnlockPair;
+	static std::map<DWORD, UnlockPair*> unlockPairs;
+#endif
 public:
     AsynchronousCloseMonitor(SOCKET fd);
     ~AsynchronousCloseMonitor();
@@ -57,7 +73,6 @@ public:
     static void init();
 
     static void signalBlockedThreads(SOCKET fd);
-
 private:
     AsynchronousCloseMonitor* mPrev;
     AsynchronousCloseMonitor* mNext;

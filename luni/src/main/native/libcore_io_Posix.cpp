@@ -1204,8 +1204,10 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
 
     // Turn the Java android.system.StructPollfd[] into a C++ struct pollfd[].
     size_t arrayLength = env->GetArrayLength(javaStructs);
-    UniquePtr<struct pollfd[]> fds(new struct pollfd[arrayLength]);
-    memset(fds.get(), 0, sizeof(struct pollfd) * arrayLength);
+	bool createUnlockPair = timeoutMs > 0;
+	int tmpLength = arrayLength + (createUnlockPair ? 2 : 0);
+    UniquePtr<struct pollfd[]> fds(new struct pollfd[tmpLength]);
+    memset(fds.get(), 0, sizeof(struct pollfd) * tmpLength);
     size_t count = 0; // Some trailing array elements may be irrelevant. (See below.)
     for (size_t i = 0; i < arrayLength; ++i) {
         ScopedLocalRef<jobject> javaStruct(env, env->GetObjectArrayElement(javaStructs, i));
@@ -1220,15 +1222,27 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
         fds[count].events = env->GetShortField(javaStruct.get(), eventsFid);
         ++count;
     }
+	UnlockPair* unlockPair = NULL;
+	if (createUnlockPair) {
+		unlockPair = new UnlockPair();
+		fds[count].fd = unlockPair->end1;
+        fds[count].events = POLLIN | POLLPRI | POLLOUT;
+		fds[count + 1].fd = unlockPair->end2;
+        fds[count + 1].events = POLLIN | POLLPRI | POLLOUT;
+	}
 
     std::vector<AsynchronousCloseMonitor*> monitors;
     for (size_t i = 0; i < count; ++i) {
         monitors.push_back(new AsynchronousCloseMonitor(fds[i].fd));
     }
-    int rc = poll(fds.get(), count, timeoutMs);
+    int rc = poll(fds.get(), createUnlockPair ? count + 2 : count, timeoutMs);
     for (size_t i = 0; i < monitors.size(); ++i) {
         delete monitors[i];
     }
+	if (createUnlockPair) {
+		delete unlockPair;
+	}
+	
     if (rc == -1) {
         throwErrnoException(env, "poll");
         return -1;
@@ -1242,6 +1256,7 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
         }
         env->SetShortField(javaStruct.get(), reventsFid, fds[i].revents);
     }
+	
     return rc;
 }
 

@@ -32,7 +32,10 @@
  * question). For now at least, this seems like a good compromise for Android.
  */
 static pthread_mutex_t blockedThreadListMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t blockedPollMutex = PTHREAD_MUTEX_INITIALIZER;
 static AsynchronousCloseMonitor* blockedThreadList = NULL;
+
+std::map<DWORD, UnlockPair*> AsynchronousCloseMonitor::unlockPairs;
 
 /**
  * The specific signal chosen here is arbitrary, but bionic needs to know so that SIGRTMIN
@@ -54,6 +57,30 @@ static void blockedThreadSignalHandler(int /*signal*/) {
 
 VOID CALLBACK closeSocketApcCallback(ULONG_PTR socketParam) {
 	closesocket(static_cast<SOCKET>(socketParam));
+}
+#endif
+
+#if defined(__MINGW32__) || defined(__MINGW64__)
+
+#include "mingw-extensions.h"
+
+UnlockPair::UnlockPair() {
+	ScopedPthreadMutexLock pollLock(&blockedPollMutex);
+	int pipefd[2];
+	pipe(pipefd);
+	
+	end1 = static_cast<SOCKET>(pipefd[0]);
+	end2 = static_cast<SOCKET>(pipefd[1]);
+	
+	DWORD threadId = GetCurrentThreadId();
+	AsynchronousCloseMonitor::unlockPairs.insert(std::pair<DWORD, UnlockPair*>(threadId, this));
+}
+UnlockPair::~UnlockPair() {
+	ScopedPthreadMutexLock pollLock(&blockedPollMutex);
+	DWORD threadId = GetCurrentThreadId();
+	closesocket(end1);
+	closesocket(end2);
+	AsynchronousCloseMonitor::unlockPairs.erase(threadId);
 }
 #endif
 
@@ -82,6 +109,26 @@ void AsynchronousCloseMonitor::signalBlockedThreads(SOCKET fd) {
             pthread_kill(it->mThread, BLOCKED_THREAD_SIGNAL);
 #else
             HANDLE hThread = OpenThread(THREAD_SET_CONTEXT, FALSE, it->mThreadId);
+			{
+				ScopedPthreadMutexLock pollLock(&blockedPollMutex);
+
+				if (unlockPairs.find(it->mThreadId) != unlockPairs.end()) {
+					char byteToSend = 123;
+					UnlockPair& up = *(unlockPairs.at(it->mThreadId));
+					__mingw_printf("[sending]");
+					int ret = send(up.end1, &byteToSend, 1, 0);
+					if (ret == -1) {
+						__mingw_printf("Can't send a byte to the unlocking pair: %d", WSAGetLastError());
+					}
+					Sleep(100);		// TODO: Change this with a callback!
+					__mingw_printf("[receiveing]");
+					ret = recv(up.end2, &byteToSend, 1, 0);
+					if (ret == -1) {
+						__mingw_printf("Can't receive a byte to the unlocking pair: %d", WSAGetLastError());
+					}
+				}
+			}
+
             QueueUserAPC(closeSocketApcCallback, hThread, static_cast<ULONG_PTR>(it->mFd));
             CloseHandle(hThread);
 #endif
