@@ -68,6 +68,9 @@ VOID CALLBACK closeSocketApcCallback(ULONG_PTR socketParam) {
 
 UnlockPair::UnlockPair() {
 	ScopedPthreadMutexLock pollLock(&blockedPollMutex);
+	pushed = false;
+	pushMutex = PTHREAD_MUTEX_INITIALIZER;
+	
 	int pipefd[2];
 	pipe(pipefd);
 	
@@ -77,6 +80,35 @@ UnlockPair::UnlockPair() {
 	DWORD threadId = GetCurrentThreadId();
 	AsynchronousCloseMonitor::unlockPairs.insert(std::pair<DWORD, UnlockPair*>(threadId, this));
 }
+
+void UnlockPair::push() {
+	ScopedPthreadMutexLock pushLock(&pushMutex);
+	if (!pushed) {
+		char byteToSend = 123;
+		//__mingw_printf("[sending]");
+		int ret = send(end1, &byteToSend, 1, 0);
+		if (ret != -1) {
+			pushed = true;
+		} else {
+			__mingw_printf("Can't send a byte to the unlocking pair: %d", WSAGetLastError());
+		}
+	}
+}
+
+void UnlockPair::pop() {
+	ScopedPthreadMutexLock pushLock(&pushMutex);
+	if (pushed) {
+		char byteToRecv;
+		//__mingw_printf("[receiveing]");
+		int ret = recv(end2, &byteToRecv, 1, 0);
+		if (ret != -1) {
+			pushed = false;
+		} else {
+			__mingw_printf("Can't receive a byte to the unlocking pair: %d", WSAGetLastError());
+		}
+	}
+}
+
 UnlockPair::~UnlockPair() {
 	ScopedPthreadMutexLock pollLock(&blockedPollMutex);
 	DWORD threadId = GetCurrentThreadId();
@@ -115,19 +147,8 @@ void AsynchronousCloseMonitor::signalBlockedThreads(SOCKET fd) {
 				ScopedPthreadMutexLock pollLock(&blockedPollMutex);
 
 				if (unlockPairs.find(it->mThreadId) != unlockPairs.end()) {
-					char byteToSend = 123;
 					UnlockPair& up = *(unlockPairs.at(it->mThreadId));
-					__mingw_printf("[sending]");
-					int ret = send(up.end1, &byteToSend, 1, 0);
-					if (ret == -1) {
-						__mingw_printf("Can't send a byte to the unlocking pair: %d", WSAGetLastError());
-					}
-					Sleep(100);		// TODO: Change this with a callback!
-					__mingw_printf("[receiveing]");
-					ret = recv(up.end2, &byteToSend, 1, 0);
-					if (ret == -1) {
-						__mingw_printf("Can't receive a byte to the unlocking pair: %d", WSAGetLastError());
-					}
+					up.push();
 				}
 			}
 

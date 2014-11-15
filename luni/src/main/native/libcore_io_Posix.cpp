@@ -1251,6 +1251,7 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
 
 #if defined(__MINGW32__) || defined(__MINGW64__)
 	if (createUnlockPair) {
+		unlockPair->pop();
 		delete unlockPair;
 	}
 #endif

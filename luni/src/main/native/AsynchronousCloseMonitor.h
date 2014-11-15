@@ -31,10 +31,15 @@
 
 #if defined(__MINGW32__) || defined(__MINGW64__)
 class UnlockPair {
+private:
+	pthread_mutex_t pushMutex;
+	bool pushed;
 public:
 	SOCKET end1, end2;
 	UnlockPair();
 	~UnlockPair();
+	void push();
+	void pop();
 };
 #endif
 
