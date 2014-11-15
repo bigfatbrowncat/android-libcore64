@@ -1240,6 +1240,7 @@ static jint Posix_poll(JNIEnv* env, jobject, jobjectArray javaStructs, jint time
         delete monitors[i];
     }
 	if (createUnlockPair) {
+		unlockPair->pop();
 		delete unlockPair;
 	}
 	
