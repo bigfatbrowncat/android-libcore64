@@ -69,7 +69,7 @@ VOID CALLBACK closeSocketApcCallback(ULONG_PTR socketParam) {
 UnlockPair::UnlockPair() {
 	ScopedPthreadMutexLock pollLock(&blockedPollMutex);
 	pushed = false;
-	pthread_mutex_init(&pushMutex);
+	pthread_mutex_init(&pushMutex, NULL);
 	
 	int pipefd[2];
 	pipe(pipefd);
