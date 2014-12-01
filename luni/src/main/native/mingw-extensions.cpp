@@ -402,9 +402,7 @@ int fdatasync(int fd)
 
 int fsync(int fd)
 {
-	errno = EBADF;
-	FIXME_STUB_ERRNO("this function isn't supported yet");
-	return -1;
+	return (FlushFileBuffers ((HANDLE) _get_osfhandle (fd))) ? 0 : -1;
 }
 
 // getgid, uid, ppid
