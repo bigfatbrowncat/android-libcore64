@@ -968,6 +968,7 @@ static jobject Posix_getsockoptTimeval(JNIEnv* env, jobject, jobject javaFd, jin
 #if !defined(__MINGW32__) && !defined(__MINGW64__)
     int rc = TEMP_FAILURE_RETRY(getsockopt(fd, level, option, &tv, &size));
 #else
+    // TODO: getsockopt() on Windows cannot retrieve timeouts, set errno to some meaningful value
     int rc = TEMP_FAILURE_RETRY(getsockopt(fd, level, option, (char*)&tv, &size));
 #endif
     if (rc == -1) {
@@ -1356,6 +1357,7 @@ static jint Posix_recvfromBytes(JNIEnv* env, jobject, jobject javaFd, jobject ja
     memset(&ss, 0, sizeof(ss));
     sockaddr* from = (javaInetSocketAddress != NULL) ? reinterpret_cast<sockaddr*>(&ss) : NULL;
     socklen_t* fromLength = (javaInetSocketAddress != NULL) ? &sl : 0;
+    
 #if !defined(__MINGW32__) && !defined(__MINGW64__)
     jint recvCount = IO_FAILURE_RETRY(env, ssize_t, recvfrom, javaFd, bytes.get() + byteOffset, byteCount, flags, from, fromLength);
 #else
@@ -1616,7 +1618,14 @@ static void Posix_setsockoptTimeval(JNIEnv* env, jobject, jobject javaFd, jint l
 #if !defined(__MINGW32__) && !defined(__MINGW64__)
     throwIfMinusOne(env, "setsockopt", TEMP_FAILURE_RETRY(setsockopt(fd, level, option, &value, sizeof(value))));
 #else
-    throwIfMinusOne(env, "setsockopt", TEMP_FAILURE_RETRY(setsockopt(fd, level, option, (char*)&value, sizeof(value))));
+    // cannot use timeval here - setsockopt on Windows accepts timeout as a DWORD (in milliseconds)
+    DWORD timeout = value.tv_sec + value.tv_usec / 1000;
+    if (timeout == 0 && value.tv_usec > 0) {
+        // rounding error... but we cannot let timeout be 0 if requested non-zero because
+        // zero timeout means "block forever" - not something user wanted
+        timeout = 1;
+    }
+    throwIfMinusOne(env, "setsockopt", TEMP_FAILURE_RETRY(setsockopt(fd, level, option, (char*)&timeout, sizeof(timeout))));
 #endif
 }
 
