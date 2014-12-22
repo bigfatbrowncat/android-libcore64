@@ -600,6 +600,12 @@ SOCKET mingw_socket(int af, int type, int protocol);
 */
 int mingw_connect(SOCKET s, const struct sockaddr *name, int namelen);
 
+/* On Windows it's impossible to retrieve SO_RCVTIMEO / SO_SNDTIMEO values set via setsockopt()
+ * call, so we wrap setsockopt / getsockopt functions and store timeouts in a special map.
+*/
+int mingw_setsockopt(SOCKET s, int level, int optname, const char* optval, int optlen);
+int mingw_getsockopt(SOCKET s, int level, int optname, char* optval, int *optlen);
+
 // An equivalent for POSIX realpath function
 char *mingw_realpath(const char *path, char *resolved_path);
 wchar_t *mingw_realpath(const wchar_t *path, wchar_t *resolved_path);

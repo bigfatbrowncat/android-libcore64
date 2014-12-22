@@ -51,20 +51,34 @@
 #define NTFS_SUPER_MAGIC		0x5346544E
 
 
-// Static data (unfortunately, we have some)
-class SocketNonblockingLock {
+class SocketExtDataLock {
     static pthread_mutex_t mutex;
-    SocketNonblockingLock() {
+    SocketExtDataLock() {
         pthread_mutex_lock(&mutex);
     }
-    ~SocketNonblockingLock() {
+    ~SocketExtDataLock() {
         pthread_mutex_unlock(&mutex);
     }
 };
-pthread_mutex_t SocketNonblockingLock::mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t SocketExtDataLock::mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static std::map<int, bool> socket_nonblocking;	// We have to store this in a map
-												// cause it is impossible to check this in Windows
+class SocketData {
+    public:
+        bool nonblocking;
+        DWORD recv_timeout;
+        DWORD send_timeout;
+
+        SocketData() {
+            nonblocking = false;
+            recv_timeout = 0;
+            send_timeout = 0;
+        };
+};
+
+// Static data (unfortunately, we have some)
+static std::map<int, SocketData> socket_ext_data;	// We have to store this in a map
+													// cause it is impossible to check this in Windows
+
 
 // Static functions
 // These functions are used only by mingw-extensions itself
@@ -328,7 +342,7 @@ int pipe(int pipefd[2])
 
 int fcntl(int fd, int cmd, ... /* arg */ )
 {
-    SocketNonblockingLock _lock();
+    SocketExtDataLock _lock();
 
 	int res = 0;
 
@@ -346,7 +360,11 @@ int fcntl(int fd, int cmd, ... /* arg */ )
 			blocking = true;
 		}
 
-		socket_nonblocking[fd] = !blocking;
+        if (socket_ext_data.find(fd) == socket_ext_data.end()) {
+            // we know nothing about this socket fd yet
+            socket_ext_data[fd] = SocketData();
+        }
+		socket_ext_data[fd].nonblocking = !blocking;
 
 		u_long socketMode = blocking ? 0 : 1;
 		int rc = ioctl(fd, FIONBIO, &socketMode);
@@ -366,7 +384,7 @@ int fcntl(int fd, int cmd, ... /* arg */ )
 	}
 	else if (cmd == F_GETFL)
 	{
-		if (socket_nonblocking.find(fd) != socket_nonblocking.end() && socket_nonblocking[fd] == true)
+		if (socket_ext_data.find(fd) != socket_ext_data.end() && socket_ext_data[fd].nonblocking)
 		{
 			res = O_NONBLOCK;
 			goto exit_end_args;
@@ -1301,10 +1319,10 @@ int _wsymlink(const wchar_t *path1, const wchar_t *path2)
 
 int mingw_close(int fd)
 {
-    SocketNonblockingLock _lock();
+    SocketExtDataLock _lock();
 
-	if (socket_nonblocking.find(fd) != socket_nonblocking.end()) {
-		socket_nonblocking.erase(fd);
+	if (socket_ext_data.find(fd) != socket_ext_data.end()) {
+		socket_ext_data.erase(fd);
 	}
 
 	if (is_socket(fd)) {
@@ -1364,6 +1382,74 @@ int mingw_connect(SOCKET s, const struct sockaddr *name, int namelen)
         }
     }
     return rc;
+}
+
+// we cannot use timeval for timeouts on Windows - setsockopt accepts timeout as a DWORD (in milliseconds)
+static inline DWORD _timeval_to_timeout(const char* optval) {
+    const struct timeval value = *(struct timeval *)(optval);
+    DWORD timeout = value.tv_sec * 1000 + value.tv_usec / 1000;
+    if (timeout == 0 && value.tv_usec > 0) {
+        // rounding error... but we cannot let timeout be 0 if requested non-zero because
+        // zero timeout means "block forever" - not something user wanted
+        timeout = 1;
+    }
+    return timeout;
+}
+
+static inline void _timeout_to_timeval(DWORD timeout, struct timeval *out) {
+    out->tv_sec = timeout / 1000;
+    out->tv_usec = (timeout % 1000) * 1000;
+}
+
+// Get external data for given socket... create if needed. Be sure to call within scope guarded
+// by SocketExtDataLock as this function modifies socket_ext_data structure
+static inline SocketData* _get_socket_data(SOCKET fd) {
+    // TODO: use iterators to speed stuff up
+    if (socket_ext_data.find(fd) == socket_ext_data.end()) {
+        // we know nothing about this socket fd yet
+        socket_ext_data[fd] = SocketData();
+    }
+    return &socket_ext_data[fd];
+}
+
+int mingw_setsockopt(SOCKET s, int level, int optname, const char* optval, int optlen) {
+    SocketExtDataLock _lock();
+    SocketData *data = _get_socket_data(s);
+    DWORD timeout;
+
+    switch(optname) {
+        case SO_SNDTIMEO:
+            timeout = _timeval_to_timeout(optval);
+            // save the timeout so getsockopt would be able to get it back
+            data->send_timeout = timeout;
+            return setsockopt(s, level, optname, (const char*)&timeout, sizeof(timeout));
+        case SO_RCVTIMEO:
+            timeout = _timeval_to_timeout(optval);
+            // save the timeout so getsockopt would be able to get it back
+            data->recv_timeout = timeout;
+            return setsockopt(s, level, optname, (const char*)&timeout, sizeof(timeout));
+        default:
+            // other setsockopt options don't need special handling, pass them through
+            return setsockopt(s, level, optname, optval, optlen);
+    }
+}
+
+int mingw_getsockopt(SOCKET s, int level, int optname, char* optval, int *optlen) {
+    SocketExtDataLock _lock();
+    SocketData *data = _get_socket_data(s);
+
+    switch (optname) {
+        case SO_SNDTIMEO:
+            _timeout_to_timeval(data->send_timeout, (struct timeval*)optval);
+            break;
+        case SO_RCVTIMEO:
+            _timeout_to_timeval(data->recv_timeout, (struct timeval*)optval);
+            break;
+        default:
+            // fallback to native getsockopt()
+            return getsockopt(s, level, optname, optval, optlen);
+    }
+    return 0;
 }
 
 #ifdef __cplusplus
