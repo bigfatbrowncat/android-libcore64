@@ -548,7 +548,7 @@ struct ifreq {
             char *  ifr_data;
     };
 };
-char *if_indextoname(unsigned int ifindex, char *ifname);
+char *mingw_if_indextoname(unsigned int ifindex, char *ifname);
 
 // arpa/inet.h
 

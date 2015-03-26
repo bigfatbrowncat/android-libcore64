@@ -549,7 +549,7 @@ int kill(pid_t pid, int sig)
 
 // ifreq
 
-char *if_indextoname(unsigned int ifindex, char *ifname)
+char *mingw_if_indextoname(unsigned int ifindex, char *ifname)
 {
 	// TODO The if_indextoname function can be replaced by 
 	//      a call to the ConvertInterfaceIndexToLuid function 
