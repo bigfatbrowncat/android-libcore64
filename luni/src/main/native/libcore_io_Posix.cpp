@@ -1018,7 +1018,11 @@ static jint Posix_getuid(JNIEnv*, jobject) {
 
 static jstring Posix_if_indextoname(JNIEnv* env, jobject, jint index) {
     char buf[IF_NAMESIZE];
+#if defined(__MINGW32__) || defined(__MINGW64__)
     char* name = mingw_if_indextoname(index, buf);
+#else
+    char* name = if_indextoname(index, buf);
+#endif
     // if_indextoname(3) returns NULL on failure, which will come out of NewStringUTF unscathed.
     // There's no useful information in errno, so we don't bother throwing. Callers can null-check.
     return env->NewStringUTF(name);
