@@ -424,14 +424,17 @@ int prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4
 #define S_ISGID					0002000
 #define S_ISVTX					0001000
 
-#define S_IRWXG					00070
-#define S_IRGRP					00040
-#define S_IWGRP					00020
-#define S_IXGRP					00010
-#define S_IRWXO					00007
-#define S_IROTH					00004
-#define S_IWOTH					00002
-#define S_IXOTH					00001
+#ifndef S_IROTH
+// some constants were not defined in old MinGW releases
+#   define S_IRWXG					00070
+#   define S_IRGRP					00040
+#   define S_IWGRP					00020
+#   define S_IXGRP					00010
+#   define S_IRWXO					00007
+#   define S_IROTH					00004
+#   define S_IWOTH					00002
+#   define S_IXOTH					00001
+#endif
 
 int fchmod(int fd, mode_t mode);
 int _wlstat(const wchar_t *path, struct _stat *buf);
@@ -588,6 +591,8 @@ char *strsignal(int sig);
 // This is the emulation for POSIX close() (unfortunately, the 
 // default close() function in Windows doesn't close everything)
 int mingw_close(int fd);
+ssize_t mingw_read(int fd, void *buf, size_t count);
+ssize_t mingw_write(int fd, const void *buf, size_t count);
 
 /* This emulates POSIX socket(); Windows has native implementation that works,
  * but we want more tricky implementation than that (differs on Windows version):
@@ -660,5 +665,18 @@ class ExecWideStrings {
         ExecWideStrings(const ExecWideStrings&);
         void operator=(const ExecWideStrings&);
 };
+
+#ifdef MINGW_EXTENSIONS_EXTRA_CHECK
+#define close(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+#define read(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+#define write(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+
+#define if_indextoname(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+#define socket(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+#define connect(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+#define setsockopt(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+#define getsockopt(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+#define realpath(...) __is_this_really_what_you_wanted__(__VA_ARGS__)
+#endif
 
 #endif

@@ -1333,6 +1333,30 @@ int mingw_close(int fd)
 
 }
 
+ssize_t mingw_read(int fd, void *buf, size_t count)
+{
+    if (!is_socket(fd))
+    {
+        return read(fd, buf, count);
+    } else {
+        ssize_t result = recv(fd, (char*)buf, count, 0);
+        errno = windowsErrorToErrno(WSAGetLastError());
+        return result;
+    }
+}
+
+ssize_t mingw_write(int fd, const void *buf, size_t count)
+{
+    if (!is_socket(fd))
+    {
+        return write(fd, buf, count);
+    } else {
+        ssize_t result = send(fd, (char*)buf, count, 0);
+        errno = windowsErrorToErrno(WSAGetLastError());
+        return result;
+    }
+}
+
 SOCKET mingw_socket(int af, int type, int protocol) {
 	static int is_old_windows = 0;
 	if (af != AF_INET6) {
